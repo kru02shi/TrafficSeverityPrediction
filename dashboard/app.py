@@ -2,11 +2,15 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import joblib
+import requests
 
-# pre-trained model
 @st.cache_resource
 def load_model():
-    return joblib.load("../models/model_rf.pkl")
+    url = "https://drive.google.com/file/d/1mfJf6Hqv9nmFBc1u_jrRh6HztmYPsECM/view?usp=sharing"
+    response = requests.get(url)
+    with open("model_rf.pkl", "wb") as f:
+        f.write(response.content)
+    return joblib.load("model_rf.pkl")
 
 @st.cache_data
 def load_data():
@@ -67,11 +71,17 @@ input_data.update({
 })
 
 for col in categorical_cols:
-    map_df = load_mapping(col)
-    options = sorted(map_df[f"{col}_Original"].dropna().unique())
-    selected = st.sidebar.selectbox(col, options)    
-    code = map_df.loc[map_df[f"{col}_Original"] == selected, f"{col}_Code"].values[0]
-    input_data[col] = code
+    st.write(f"Loading mapping for: {col}")
+    try:
+        map_df = load_mapping(col)
+        options = sorted(map_df[f"{col}_Original"].dropna().unique())
+        st.write(f"Options for {col}: {options[:5]}...")  # show first few options
+        selected = st.sidebar.selectbox(col, options)    
+        code = map_df.loc[map_df[f"{col}_Original"] == selected, f"{col}_Code"].values[0]
+        input_data[col] = code
+    except FileNotFoundError:
+        st.warning(f"Mapping file for {col} not found!")
+        continue
 
 x_input = pd.DataFrame([input_data]).reindex(columns=feature_names, fill_value=0)
 
