@@ -2,15 +2,17 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
 import requests
 
 @st.cache_resource
 def load_model():
-    url = "https://drive.google.com/file/d/1mfJf6Hqv9nmFBc1u_jrRh6HztmYPsECM/view?usp=sharing"
-    response = requests.get(url)
-    with open("model_rf.pkl", "wb") as f:
-        f.write(response.content)
-    return joblib.load("model_rf.pkl")
+#   url = "https://drive.google.com/file/d/1mfJf6Hqv9nmFBc1u_jrRh6HztmYPsECM/view?usp=sharing"
+#   response = requests.get(url)
+#   with open("model_rf.pkl", "wb") as f:
+#       f.write(response.content)
+    return joblib.load("../models/model_rf.pkl")
 
 @st.cache_data
 def load_data():
@@ -85,43 +87,10 @@ for col in categorical_cols:
 
 x_input = pd.DataFrame([input_data]).reindex(columns=feature_names, fill_value=0)
 
-if st.sidebar.button("Predict Severity"):
-    prediction = model.predict(x_input)[0]  # Adjust if your model shifted labels
-    st.sidebar.success(f"Predicted Severity Level: {prediction}")
-
-st.sidebar.header("Hotspot Map Filters")
-lat_min = st.sidebar.number_input("Min Latitude", value=float(df["Start_Lat"].min()))
-lat_max = st.sidebar.number_input("Max Latitude", value=float(df["Start_Lat"].max()))
-lng_min = st.sidebar.number_input("Min Longitude", value=float(df["Start_Lng"].min()))
-lng_max = st.sidebar.number_input("Max Longitude", value=float(df["Start_Lng"].max()))
-
-df_filtered = df[
-    (df["Start_Lat"] >= lat_min) & (df["Start_Lat"] <= lat_max) &
-    (df["Start_Lng"] >= lng_min) & (df["Start_Lng"] <= lng_max)
-]
-
-# Tabs for use cases
-t1, t2, t3 = st.tabs(["Traffic Control", "Weather Alerts", "Planning"])
+# t1, t2, t3, t4, t5 = st.tabs(["Weather Alerts", "Planning", "EDA", "Predict Severity", "Traffic Control"])
+t1, t2, t3, t4 = st.tabs(["Weather Alerts", "Planning", "EDA", "Predict Severity"])
 
 with t1:
-    st.header("Accident Hotspots & Traffic Control")
-    st.write("Visualize accident-prone locations for better traffic management.")
-    if not df_filtered.empty:
-        fig = px.density_mapbox(
-            df_filtered,
-            lat="Start_Lat",
-            lon="Start_Lng",
-            z="Severity",  # or use count / weight
-            radius=10,  # adjust for density granularity
-            center=dict(lat=df_filtered["Start_Lat"].mean(), lon=df_filtered["Start_Lng"].mean()),
-            zoom=3,
-            mapbox_style="carto-positron"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("No data points in the selected coordinate range.")
-
-with t2:
     st.header("Weather-Based Accident Alerts")
     st.write("Monitor risk based on current weather inputs.")
     if input_data["Weather_Condition"] != 0 or precip > 0:
@@ -129,8 +98,85 @@ with t2:
     else:
         st.success("Weather conditions are safe.")
 
-with t3:
+with t2:
     st.header("Location-Based Planning")
-    st.write("Identify locations needing maintenance.")
-    bar_fig = px.bar(x=["City A", "City B", "City C"], y=[120, 80, 60], labels={'x': 'City', 'y': 'High Severity Accidents'})
-    st.plotly_chart(bar_fig, use_container_width=True)
+    st.write("Identify locations needing maintenance based on high-severity accidents.")
+
+    severity_counts = (
+        df[df["Severity"] >= 3]  # Assuming Severity 3 & 4 are high
+        .groupby("State")
+        .size()
+        .reset_index(name="High Severity Accidents")
+        .sort_values("High Severity Accidents", ascending=False)
+        .head(10)  # Top 10 cities with most high severity accidents
+    )
+
+    if not severity_counts.empty:
+        bar_fig = px.bar(
+            severity_counts,
+            x="State",
+            y="High Severity Accidents",
+            labels={'State': 'State', 'High Severity Accidents': 'High Severity Accidents'},
+            title="Top 10 Cities with High Severity Accidents"
+        )
+        st.plotly_chart(bar_fig, use_container_width=True)
+    else:
+        st.warning("No high-severity accidents found in the dataset.")
+
+with t3:
+    st.header("Exploratory Data Analysis")
+    
+    # 1) Severity Distribution
+    fig1, ax1 = plt.subplots(figsize=(6, 4))
+    sns.countplot(x='Severity', data=df, palette='deep', ax=ax1)
+    ax1.set_title('Accident Severity Distribution')
+    ax1.set_xlabel('Severity Level')
+    ax1.set_ylabel('Count')
+    st.pyplot(fig1)
+
+    # 2) Accidents by Hour of Day
+    fig2, ax2 = plt.subplots(figsize=(6, 4))
+    sns.histplot(data=df, x='Hour', hue='Severity', multiple='stack',
+                 bins=25, palette='mako', ax=ax2)
+    ax2.set_title('Accidents by Hour of Day')
+    ax2.set_xlabel('Hour (0–23)')
+    ax2.set_ylabel('Count')
+    st.pyplot(fig2)
+
+    # 3) Accidents by Weekday
+    fig3, ax3 = plt.subplots(figsize=(6, 4))
+    sns.countplot(x='Weekday', hue='Severity', data=df, palette='crest', ax=ax3)
+    ax3.set_title('Accidents by Weekday')
+    ax3.set_xlabel('Weekday')
+    ax3.set_ylabel('Count')
+    st.pyplot(fig3)
+
+    # 4) Top 10 Weather Conditions
+    top_weather = df['Weather_Condition'].value_counts().head(10).index
+    weather_df = df[df['Weather_Condition'].isin(top_weather)]
+    fig4, ax4 = plt.subplots(figsize=(10, 6))
+    sns.countplot(x='Weather_Condition', hue='Severity', data=weather_df,
+                  order=top_weather, palette='Set2', ax=ax4)
+    ax4.set_title('Accidents by Top 10 Weather Conditions')
+    ax4.set_xlabel('Weather Condition')
+    ax4.set_ylabel('Count')
+    plt.setp(ax4.get_xticklabels(), rotation=45, ha='right')
+    st.pyplot(fig4)
+
+    # 5) Top 10 States
+    top_states = df['State'].value_counts().head(10).index
+    state_df = df[df['State'].isin(top_states)]
+    fig5, ax5 = plt.subplots(figsize=(10, 6))
+    sns.countplot(x='State', hue='Severity', data=state_df,
+                  order=top_states, palette='icefire', ax=ax5)
+    ax5.set_title('Accidents by Top 10 States')
+    ax5.set_xlabel('State')
+    ax5.set_ylabel('Count')
+    st.pyplot(fig5)
+
+with t4:
+    st.header("Severity Prediction")
+    st.write("Predict accident severity based on input conditions.")
+    if st.button("Predict Severity"):
+        prediction = model.predict(x_input)[0]  # Adjust if your model shifted labels
+        st.success(f"Predicted Severity Level: {prediction}")
